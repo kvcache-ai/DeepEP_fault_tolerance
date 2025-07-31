@@ -516,6 +516,7 @@ class Buffer:
                              num_max_dispatch_tokens_per_rank: int, num_experts: int,
                              cumulative_local_expert_recv_stats: Optional[torch.Tensor] = None,
                              dispatch_wait_recv_cost_stats: Optional[torch.Tensor] = None,
+                             broken_nodes: Optional[torch.Tensor] = None,
                              use_fp8: bool = True, round_scale: bool = False, use_ue8m0: bool = False,
                              async_finish: bool = False, return_recv_hook: bool = False) -> \
             Tuple[Tuple[torch.Tensor, torch.Tensor], torch.Tensor, Tuple, EventOverlap, Callable]:
@@ -539,6 +540,8 @@ class Buffer:
             dispatch_wait_recv_cost_stats: a cumulative time spent waiting to receive each token tensor for statistics,
                 which should have shape `[num_ranks, num_ranks]` and be typed as `torch.int64`.
                 This is useful for detecting and pre-cisely localizing slow anomalies.
+            broken_nodes: a 0/1 tensor of shape `[num_ranks]` indicating which nodes are broken.
+                If new broken nodes are detected, respective elements of `broken_nodes` will be set to 1.
             use_fp8: whether to enable FP8 casting, with this, the received data will be a tuple of FP8 tensor and scaling factors.
             round_scale: whether round the scaling factors into power of 2.
             use_ue8m0: whether use UE8M0 as scaling factor format (available only with `round_scale=True`).
@@ -570,6 +573,7 @@ class Buffer:
             self.runtime.low_latency_dispatch(x, topk_idx,
                                               cumulative_local_expert_recv_stats,
                                               dispatch_wait_recv_cost_stats,
+                                              broken_nodes,
                                               num_max_dispatch_tokens_per_rank, num_experts,
                                               use_fp8, round_scale, use_ue8m0,
                                               async_finish, return_recv_hook)
@@ -585,7 +589,8 @@ class Buffer:
     def low_latency_combine(self, x: torch.Tensor, topk_idx: torch.Tensor, topk_weights: torch.Tensor,
                             handle: tuple, use_logfmt: bool = False, zero_copy: bool = False, async_finish: bool = False,
                             return_recv_hook: bool = False, out: Optional[torch.Tensor] = None,
-                            combine_wait_recv_cost_stats: Optional[torch.Tensor] = None) -> \
+                            combine_wait_recv_cost_stats: Optional[torch.Tensor] = None,
+                            broken_nodes: Optional[torch.Tensor] = None) -> \
             Tuple[torch.Tensor, EventOverlap, Callable]:
         """
         A low-latency implementation for combining tokens (reduce **with weights**) with IBGDA.
@@ -614,6 +619,8 @@ class Buffer:
             combine_wait_recv_cost_stats: a cumulative time spent waiting to receive each token tensor for statistics,
                 which should have shape `[num_ranks, num_ranks]` and be typed as `torch.int64`.
                 This is useful for detecting and pre-cisely localizing slow anomalies.
+            broken_nodes: a 0/1 tensor of shape `[num_ranks]` indicating which nodes are broken.
+                If new broken nodes are detected, respective elements of `broken_nodes` will be set to 1.
 
         Returns:
             combined_x: the reduced token tensor, with shape `[num_combined_tokens, hidden]` and type `torch.bfloat16`.
@@ -623,6 +630,7 @@ class Buffer:
         src_info, layout_range, num_max_dispatch_tokens_per_rank, hidden, num_experts = handle
         combined_x, event, hook = self.runtime.low_latency_combine(x, topk_idx, topk_weights, src_info, layout_range,
                                                                    combine_wait_recv_cost_stats,
+                                                                   broken_nodes,
                                                                    num_max_dispatch_tokens_per_rank, num_experts,
                                                                    use_logfmt, zero_copy, async_finish, return_recv_hook,
                                                                    out)

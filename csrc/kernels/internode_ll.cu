@@ -3,6 +3,8 @@
 #include "launch.cuh"
 #include "ibgda_device.cuh"
 
+#define TIMEOUT_TICKS 10000000000l
+
 namespace deep_ep {
 
 namespace internode_ll {
@@ -43,6 +45,7 @@ dispatch(void* packed_recv_x, void* packed_recv_x_scales,
          int* packed_recv_count,
          int* cumulative_local_expert_recv_stats,
          int64_t* dispatch_wait_recv_cost_stats,
+         int32_t* broken_nodes,
          void* rdma_recv_x, int* rdma_recv_count, void* rdma_x,
          const void* x, const int64_t* topk_idx,
          int* atomic_counter_per_expert, int* atomic_finish_counter_per_expert,
@@ -274,7 +277,15 @@ dispatch(void* packed_recv_x, void* packed_recv_x_scales,
         EP_DEVICE_ASSERT(num_warps_per_group > 1 and num_warp_groups < 15);
         if (sub_warp_id == 1 and lane_id == 0) {
             auto start_time = clock64();
-            while ((num_recv_tokens = ld_acquire_sys_global(rdma_recv_count + local_expert_idx * num_ranks + src_rank)) == 0);
+            while ((num_recv_tokens = ld_acquire_sys_global(rdma_recv_count + local_expert_idx * num_ranks + src_rank)) == 0) {
+                if (broken_nodes) {
+                    if (clock64() - start_time > TIMEOUT_TICKS || broken_nodes[src_rank]) {
+                        num_recv_tokens = -1;
+                        broken_nodes[src_rank] = 1;
+                        break;
+                    }
+                }
+            }
             auto wait_recv_cost = clock64() - start_time;
             num_recv_tokens = -num_recv_tokens - 1;
             recv_token_begin_idx = atomicAdd(packed_recv_count + local_expert_idx, num_recv_tokens);
@@ -338,6 +349,7 @@ void dispatch(void* packed_recv_x, void* packed_recv_x_scales,
               int* packed_recv_count,
               int* cumulative_local_expert_recv_stats,
               int64_t* dispatch_wait_recv_cost_stats,
+              int32_t* broken_nodes,
               void* rdma_recv_x, int* rdma_recv_count, void* rdma_x,
               const void* x, const int64_t* topk_idx,
               int* next_clean, int num_next_clean_int,
@@ -377,6 +389,7 @@ LAUNCH_KERNEL(&cfg, dispatch_func, \
               packed_recv_count, \
               cumulative_local_expert_recv_stats, \
               dispatch_wait_recv_cost_stats, \
+              broken_nodes, \
               rdma_recv_x, rdma_recv_count, rdma_x, \
               x, topk_idx, \
               atomic_counter_per_expert, atomic_finish_counter_per_expert, \
@@ -398,6 +411,7 @@ combine(void* combined_x,
         const void* x, const int64_t* topk_idx, const float* topk_weights,
         const int* src_info, const int64_t* layout_range,
         int64_t* combine_wait_recv_cost_stats,
+        int32_t* broken_nodes,
         int* next_clean, int num_next_clean_int,
         int* atomic_clean_flag,
         int num_combined_tokens, int hidden, int num_topk,
@@ -626,10 +640,18 @@ combine(void* combined_x,
 
     // Wait all ranks to arrive
     if (responsible_expert_idx < num_experts) {
+        const auto src_rank = responsible_expert_idx / num_local_experts;
         EP_DEVICE_ASSERT(num_warps_per_group > 1);
         if (sub_warp_id == 0 and lane_id == 0) {
             auto start_time = clock64();
-            while (ld_acquire_sys_global(rdma_recv_flag + responsible_expert_idx) == 0);
+            while (ld_acquire_sys_global(rdma_recv_flag + responsible_expert_idx) == 0) {
+                if (broken_nodes) {
+                    if (clock64() - start_time > TIMEOUT_TICKS || broken_nodes[src_rank]) {
+                        broken_nodes[src_rank] = 1;
+                        break;
+                    }
+                }
+            }
             auto wait_recv_cost = clock64() - start_time;
             if (combine_wait_recv_cost_stats != nullptr)
                 atomicAdd(reinterpret_cast<unsigned long long*>(combine_wait_recv_cost_stats
@@ -683,6 +705,7 @@ void combine(void* combined_x,
              const void* x, const int64_t* topk_idx, const float* topk_weights,
              const int* src_info, const int64_t* layout_range,
              int64_t* combine_wait_recv_cost_stats,
+             int32_t* broken_nodes,
              int* next_clean, int num_next_clean_int,
              int num_combined_tokens, int hidden, int num_max_dispatch_tokens_per_rank,
              int num_topk, int num_experts, int rank, int num_ranks,
@@ -718,6 +741,7 @@ LAUNCH_KERNEL(&cfg, combine_func, \
               rdma_recv_x, rdma_recv_flag, rdma_send_x, \
               x, topk_idx, topk_weights, src_info, layout_range, \
               combine_wait_recv_cost_stats, \
+              broken_nodes, \
               next_clean, num_next_clean_int, \
               atomic_clean_flag, \
               num_combined_tokens, hidden, num_topk, \

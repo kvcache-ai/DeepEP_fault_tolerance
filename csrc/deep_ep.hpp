@@ -147,6 +147,7 @@ public:
     low_latency_dispatch(const torch::Tensor& x, const torch::Tensor& topk_idx,
                          const std::optional<torch::Tensor>& cumulative_local_expert_recv_stats,
                          const std::optional<torch::Tensor>& dispatch_wait_recv_cost_stats,
+                         const std::optional<torch::Tensor>& broken_nodes,
                          int num_max_dispatch_tokens_per_rank, int num_experts,
                          bool use_fp8, bool round_scale, bool use_ue8m0,
                          bool async, bool return_recv_hook);
@@ -155,6 +156,7 @@ public:
     low_latency_combine(const torch::Tensor& x, const torch::Tensor& topk_idx, const torch::Tensor& topk_weights,
                         const torch::Tensor& src_info, const torch::Tensor& layout_range,
                         const std::optional<torch::Tensor>& combine_wait_recv_cost_stats,
+                        const std::optional<torch::Tensor>& broken_nodes,
                         int num_max_dispatch_tokens_per_rank, int num_experts,
                         bool use_logfmt, bool zero_copy, bool async, bool return_recv_hook,
                         const std::optional<torch::Tensor>& out = std::nullopt);
