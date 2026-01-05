@@ -192,7 +192,7 @@ def test_main(num_tokens: int,
     if shrink_test:
         return
 
-    diagnose = ds.Diagnose(group=group, enable_async=True)
+    diagnose = ds.Diagnose(group=group, enable_async=True, interval=1)
     diagnose.start_async_diagnose()
 
     # noinspection PyShadowingNames
@@ -231,7 +231,7 @@ def test_main(num_tokens: int,
         num_combine_comm_bytes += (num_logfmt10_bytes if use_logfmt else num_bf16_bytes) * num_selections
 
     # Dispatch + combine testing
-    avg_t, min_t, max_t = bench(partial(test_func, return_recv_hook=False))
+    avg_t, min_t, max_t = bench(partial(test_func, return_recv_hook=False), num_tests=10000)
     print(
         f'[rank {rank}] Dispatch + combine bandwidth: {(num_dispatch_comm_bytes + num_combine_comm_bytes) / 1e9 / avg_t:.2f} GB/s, '
         f'avg_t={avg_t * 1e6:.2f} us, min_t={min_t * 1e6:.2f} us, max_t={max_t * 1e6:.2f} us',
