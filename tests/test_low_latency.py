@@ -8,6 +8,8 @@ from typing import Literal, Set
 import deep_ep
 from utils import init_dist, bench, bench_kineto, calc_diff, hash_tensor, per_token_cast_back
 
+from deepxtrace import diagnose as ds
+
 
 def simulate_failure_and_skip(rank: int, api: Literal["dispatch", "combine", "clean"], expected_masked_ranks: Set[int]):
     # Simulates rank failure when the rank first calls the corresponding communication API
@@ -80,6 +82,8 @@ def test_main(num_tokens: int,
     # For failure simulation and shrink testing
     mask_status = torch.zeros((num_ranks, ), dtype=torch.int, device='cuda')
     expected_masked_ranks = set()
+
+    diagnose = ds.Diagnose(group=group, enable_async=False)
 
     # Check dispatch correctness
     do_check = True
