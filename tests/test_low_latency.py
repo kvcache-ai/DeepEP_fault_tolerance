@@ -192,8 +192,7 @@ def test_main(num_tokens: int,
     if shrink_test:
         return
 
-    diagnose = ds.Diagnose(group=group, enable_async=True)
-    diagnose.start_async_diagnose()
+    diagnose = ds.Diagnose(group=group, enable_async=False)
 
     # noinspection PyShadowingNames
     def large_gemm_with_hook(hook):
@@ -220,6 +219,10 @@ def test_main(num_tokens: int,
                                                              return_recv_hook=return_recv_hook,
                                                              combine_wait_recv_cost_stats=combine_wait_recv_cost_stats)
         large_gemm_with_hook(hook) if return_recv_hook else None
+        diagnose_res = diagnose.diagnose_ll_sync(diagnose_step=10)
+        # Note: diagnosis results will be gathered to rank0.
+        if rank == 0:
+            print(diagnose_res)
 
     # Calculate bandwidth
     num_fp8_bytes, num_bf16_bytes = (hidden + hidden / 128 * 4 + 16), hidden * 2
