@@ -83,8 +83,6 @@ def test_main(num_tokens: int,
     mask_status = torch.zeros((num_ranks, ), dtype=torch.int, device='cuda')
     expected_masked_ranks = set()
 
-    diagnose = ds.Diagnose(group=group, enable_async=False)
-
     # Check dispatch correctness
     do_check = True
     hash_value, num_times = 0, 0
@@ -194,6 +192,9 @@ def test_main(num_tokens: int,
     if shrink_test:
         return
 
+    diagnose = ds.Diagnose(group=group, enable_async=True)
+    diagnose.start_async_diagnose()
+
     # noinspection PyShadowingNames
     def large_gemm_with_hook(hook):
         mat_0 = torch.randn((8192, 8192), dtype=torch.float)
@@ -203,9 +204,12 @@ def test_main(num_tokens: int,
 
     # noinspection PyShadowingNames
     def test_func(return_recv_hook: bool):
+        dispatch_wait_recv_cost_stats = diagnose.get_stats_ll_stats_tensor()[0]
+        combine_wait_recv_cost_stats = diagnose.get_stats_ll_stats_tensor()[1]
         recv_x, recv_count, handle, event, hook = \
             buffer.low_latency_dispatch(current_x, topk_idx, num_tokens, num_experts,
                                         cumulative_local_expert_recv_stats=cumulative_local_expert_recv_stats,
+                                        dispatch_wait_recv_cost_stats=dispatch_wait_recv_cost_stats,
                                         use_fp8=True, async_finish=False, return_recv_hook=return_recv_hook)
         large_gemm_with_hook(hook) if return_recv_hook else None
         combined_x, event, hook = buffer.low_latency_combine(simulated_gemm_x,
@@ -213,7 +217,8 @@ def test_main(num_tokens: int,
                                                              topk_weights,
                                                              handle,
                                                              use_logfmt=use_logfmt,
-                                                             return_recv_hook=return_recv_hook)
+                                                             return_recv_hook=return_recv_hook,
+                                                             combine_wait_recv_cost_stats=combine_wait_recv_cost_stats)
         large_gemm_with_hook(hook) if return_recv_hook else None
 
     # Calculate bandwidth
